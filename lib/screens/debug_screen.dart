@@ -409,14 +409,34 @@ class _DebugScreenState extends State<DebugScreen> {
     try {
       print('=== TESTING AUDIO PLAYBACK FOR LANDMARK_ID 3 ===');
 
-      // Test landmark_id=3 audio playback directly (using fallback mechanisms)
-      print('Testing landmark_id=3 audio playback with fallback support...');
-      final success = await _audioService.playLandmarkAudio(3);
+      // First, check what landmark_ids are available
+      final allAudios = await _apiService.get('landmark_audios');
+      final availableIds = <int>{};
+      for (final audio in allAudios) {
+        availableIds.add(audio['landmark_id'] as int);
+      }
 
-      if (success) {
-        _audioTestResult = '✅ Audio playback for landmark_id=3 started successfully';
+      print('Available landmark_ids: ${availableIds.toList()..sort()}');
+
+      // Test landmark_id=3 specifically
+      if (availableIds.contains(3)) {
+        print('Testing landmark_id=3 audio playback...');
+        final success = await _audioService.playLandmarkAudio(3);
+        _audioTestResult = success
+          ? '✅ Audio playback for landmark_id=3 started successfully'
+          : '❌ Audio playback for landmark_id=3 failed';
       } else {
-        _audioTestResult = '❌ Audio playback for landmark_id=3 failed';
+        // Try the first available landmark_id
+        if (availableIds.isNotEmpty) {
+          final firstId = availableIds.first;
+          print('landmark_id=3 not found, testing first available: $firstId');
+          final success = await _audioService.playLandmarkAudio(firstId);
+          _audioTestResult = success
+            ? '✅ Audio playback for landmark_id=$firstId started successfully (3 not available)'
+            : '❌ Audio playback for landmark_id=$firstId failed';
+        } else {
+          _audioTestResult = '❌ No landmark_ids with audio found in database';
+        }
       }
 
       print('Audio test result: $_audioTestResult');
@@ -675,7 +695,7 @@ class _DebugScreenState extends State<DebugScreen> {
                   ],
                 ),
               );
-            }).toList(),
+            }),
           ],
         ),
       ),

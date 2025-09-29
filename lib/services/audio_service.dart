@@ -1,10 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart';
 import 'api_service.dart';
 
 class AudioService {
@@ -46,17 +44,6 @@ class AudioService {
   // Getter to check if audio is currently playing
   bool get isPlaying {
     return _audioPlayer.state == PlayerState.playing;
-  }
-
-  Future<void> _waitForPlaybackStart() async {
-    // Wait for the player state to change to playing
-    await for (final state in _audioPlayer.onPlayerStateChanged) {
-      if (state == PlayerState.playing) {
-        break;
-      } else if (state == PlayerState.stopped) {
-        throw Exception('Playback failed - player stopped');
-      }
-    }
   }
 
 
@@ -155,7 +142,7 @@ class AudioService {
             if (data.isNotEmpty) {
               final firstAudio = data.first as Map<String, dynamic>;
               final fallbackUrl = firstAudio['audio_url'] as String?;
-              print('Using direct HTTP audio: ${firstAudio}');
+              print('Using direct HTTP audio: $firstAudio');
               return fallbackUrl;
             }
           }
@@ -181,8 +168,8 @@ class AudioService {
       print('Audio URL retrieved: $audioUrl');
 
       if (audioUrl == null) {
-        print('音声ファイルがデータベースに登録されていません (landmark_id: $landmarkId)');
-        await _showNoAudioMessage(landmarkId);
+        print('No audio URL found or timeout, playing default audio');
+        await playDefaultAudio();
         return false;
       }
 
@@ -192,20 +179,12 @@ class AudioService {
       final workingUrl = await _testMultipleAudioPaths(audioUrl);
 
       if (workingUrl == null) {
-        print('音声ファイルがサーバーに存在しません: $audioUrl');
-        await _showNoAudioFileMessage(audioUrl);
+        print('Audio file not found at any tested path, using default audio');
+        await playDefaultAudio();
         return false;
       }
 
       print('Using working URL: $workingUrl');
-
-      // Download audio file and play locally
-      final localFile = await _downloadAudioFile(workingUrl);
-      if (localFile == null) {
-        print('Failed to download audio file, using default audio');
-        await playDefaultAudio();
-        return false;
-      }
 
       // Stop any currently playing audio safely
       try {
@@ -215,13 +194,15 @@ class AudioService {
         print('Warning: Could not stop previous audio: $e');
       }
 
-      // Play local file
-      print('Playing downloaded audio file: ${localFile.path}');
-      await _audioPlayer.play(DeviceFileSource(localFile.path));
+      // Try to play the audio with extended timeout using the working URL
+      print('Starting audio playback...');
+      await Future.any([
+        _audioPlayer.play(UrlSource(workingUrl)),
+        Future.delayed(const Duration(seconds: 15), () => throw TimeoutException('Audio play timeout after 15 seconds'))
+      ]);
 
-      // Wait briefly for playback to start
-      await Future.delayed(const Duration(milliseconds: 500));
-      print('Audio playback started successfully');
+      print('Audio playback command sent successfully');
+
       return true;
     } catch (e) {
       print('Error playing landmark audio: $e');
@@ -299,22 +280,19 @@ class AudioService {
 
     // Based on JavaScript example: http://server:3000/api/landmark_audios
     // Try different possible paths using dynamic server configuration
-    // Ensure relativeUrl starts with a slash for proper URL joining
-    final normalizedUrl = relativeUrl.startsWith('/') ? relativeUrl : '/$relativeUrl';
-
     final pathsToTry = [
       // Primary pattern - audio server base URL (port 3000)
-      '$audioServerBaseUrl$normalizedUrl',               // http://circleone.biz:3000/audio/landmark_3_ja.mp3
+      '$audioServerBaseUrl$relativeUrl',               // http://circleone.biz:3000/uploads/audio/file.mp3
 
       // Standard paths with API base URL
-      '$apiBaseUrl$normalizedUrl',                       // https://circleone.biz/api/audio/landmark_3_ja.mp3
+      '$apiBaseUrl$relativeUrl',                       // https://circleone.biz/api/uploads/audio/file.mp3
 
       // Common web server paths with audio server base URL
-      '$audioServerBaseUrl/public$normalizedUrl',       // http://circleone.biz:3000/public/audio/landmark_3_ja.mp3
-      '$audioServerBaseUrl/storage$normalizedUrl',      // http://circleone.biz:3000/storage/audio/landmark_3_ja.mp3
-      '$audioServerBaseUrl/assets$normalizedUrl',       // http://circleone.biz:3000/assets/audio/landmark_3_ja.mp3
-      '$audioServerBaseUrl/files$normalizedUrl',        // http://circleone.biz:3000/files/audio/landmark_3_ja.mp3
-      '$audioServerBaseUrl/media$normalizedUrl',        // http://circleone.biz:3000/media/audio/landmark_3_ja.mp3
+      '$audioServerBaseUrl/public$relativeUrl',       // http://circleone.biz:3000/public/uploads/audio/file.mp3
+      '$audioServerBaseUrl/storage$relativeUrl',      // http://circleone.biz:3000/storage/uploads/audio/file.mp3
+      '$audioServerBaseUrl/assets$relativeUrl',       // http://circleone.biz:3000/assets/uploads/audio/file.mp3
+      '$audioServerBaseUrl/files$relativeUrl',        // http://circleone.biz:3000/files/uploads/audio/file.mp3
+      '$audioServerBaseUrl/media$relativeUrl',        // http://circleone.biz:3000/media/uploads/audio/file.mp3
     ];
 
     print('Testing multiple paths for audio file ($relativeUrl):');
@@ -362,46 +340,6 @@ class AudioService {
     }
 
     return null;
-  }
-
-  Future<void> _showNoAudioMessage(int landmarkId) async {
-    print('■ 音声データがありません');
-    print('  観光地ID: $landmarkId');
-    print('  データベースに音声ファイルが登録されていません');
-    print('  管理画面で音声ファイルを登録してください');
-  }
-
-  Future<void> _showNoAudioFileMessage(String audioUrl) async {
-    print('■ 音声ファイルが見つかりません');
-    print('  ファイルURL: $audioUrl');
-    print('  サーバーに音声ファイルが存在しません');
-    print('  音声ファイルをサーバーにアップロードしてください');
-  }
-
-  Future<File?> _downloadAudioFile(String url) async {
-    try {
-      print('Downloading audio file from: $url');
-
-      // Get temporary directory
-      final tempDir = await getTemporaryDirectory();
-      final fileName = url.split('/').last;
-      final localFile = File('${tempDir.path}/$fileName');
-
-      // Download file
-      final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        await localFile.writeAsBytes(response.bodyBytes);
-        print('Audio file downloaded successfully: ${localFile.path} (${response.bodyBytes.length} bytes)');
-        return localFile;
-      } else {
-        print('Failed to download audio file. Status: ${response.statusCode}');
-        return null;
-      }
-    } catch (e) {
-      print('Error downloading audio file: $e');
-      return null;
-    }
   }
 
   void dispose() {

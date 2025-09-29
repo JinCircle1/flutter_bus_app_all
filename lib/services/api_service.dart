@@ -197,14 +197,14 @@ class ApiService {
 
       // Generate audio URL based on landmark and language
       final languageCode = (language['code'] as String).substring(0, 2); // ja_JP -> ja
-      final audioUrl = 'audio/landmark_${landmarkId}_${languageCode}.mp3';
+      final audioUrl = 'audio/landmark_${landmarkId}_$languageCode.mp3';
 
       final generatedAudio = {
         'id': landmarkId * 10 + languageId, // Generate unique ID
         'landmark_id': landmarkId,
         'language_id': languageId,
         'audio_url': audioUrl,
-        'filename': 'landmark_${landmarkId}_${languageCode}.mp3',
+        'filename': 'landmark_${landmarkId}_$languageCode.mp3',
         'title': '${landmark['name']}の音声ガイド (${language['name_local']})',
       };
 
