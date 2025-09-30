@@ -458,7 +458,6 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> {
           children: [
             Text('緯度: ${landmark['latitude']}'),
             Text('経度: ${landmark['longitude']}'),
-            Text('検出半径: ${landmark['radius_meters']}m'),
           ],
         ),
         actions: [
@@ -834,6 +833,12 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> {
                         bottom: 130, // コントロールパネルの上に配置
                         child: _buildDebugStatusPanel(),
                       ),
+                    // ズームコントロールボタン（観光地点情報とガイド再生ボタンの上に配置）
+                    Positioned(
+                      right: 16,
+                      top: 80,
+                      child: _buildZoomControls(),
+                    ),
                   ],
                 ),
     );
@@ -905,6 +910,92 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> {
     );
   }
 
+  Widget _buildZoomControls() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // ズームインボタン
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: IconButton(
+            icon: const Icon(Icons.add, size: 24),
+            onPressed: () {
+              final currentZoom = _mapController.camera.zoom;
+              _mapController.move(
+                _mapController.camera.center,
+                (currentZoom + 1).clamp(5.0, 18.0),
+              );
+            },
+            tooltip: 'ズームイン',
+          ),
+        ),
+        const SizedBox(height: 8),
+        // ズームアウトボタン
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: IconButton(
+            icon: const Icon(Icons.remove, size: 24),
+            onPressed: () {
+              final currentZoom = _mapController.camera.zoom;
+              _mapController.move(
+                _mapController.camera.center,
+                (currentZoom - 1).clamp(5.0, 18.0),
+              );
+            },
+            tooltip: 'ズームアウト',
+          ),
+        ),
+        const SizedBox(height: 8),
+        // 現在位置に戻るボタン
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: IconButton(
+            icon: const Icon(Icons.my_location, size: 24, color: Colors.blue),
+            onPressed: () {
+              if (latitude != null && longitude != null) {
+                _mapController.move(
+                  LatLng(latitude!, longitude!),
+                  16.0,
+                );
+              }
+            },
+            tooltip: '現在位置',
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildMainControlPanel() {
     // メインコントロールパネル（接続・切断ボタンなど）
     return Container(
@@ -941,14 +1032,6 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> {
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '検出半径: ${_currentLandmark!['radius_meters']}m',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
                     ),
                   ),
                 ],
