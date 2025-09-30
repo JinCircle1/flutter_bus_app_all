@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'screens/bus_guide_screen.dart';
 import 'screens/proper_location_guide_screen.dart';
+import 'screens/unified_map_screen.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -106,7 +107,7 @@ class BusAppAll extends StatelessWidget {
         primarySwatch: Colors.blue,
         useMaterial3: true,
       ),
-      home: const AppHomePage(),
+      home: const UnifiedMapScreen(),
     );
   }
 }

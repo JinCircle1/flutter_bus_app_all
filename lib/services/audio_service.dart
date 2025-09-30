@@ -18,12 +18,33 @@ class AudioService {
   void _initializeAudioPlayer() {
     // Set audio player mode
     _audioPlayer.setPlayerMode(PlayerMode.mediaPlayer);
-    
+
+    // Set audio context for Android
+    _audioPlayer.setAudioContext(AudioContext(
+      iOS: AudioContextIOS(
+        category: AVAudioSessionCategory.playback,
+        options: {AVAudioSessionOptions.mixWithOthers},
+      ),
+      android: AudioContextAndroid(
+        isSpeakerphoneOn: true,
+        stayAwake: true,
+        contentType: AndroidContentType.music,
+        usageType: AndroidUsageType.media,
+        audioFocus: AndroidAudioFocus.gain,
+      ),
+    ));
+
+    // Set volume to maximum
+    _audioPlayer.setVolume(1.0);
+
+    // Set release mode
+    _audioPlayer.setReleaseMode(ReleaseMode.stop);
+
     // Listen to player state changes for debugging
     _audioPlayer.onPlayerStateChanged.listen((PlayerState state) {
       print('Audio player state changed: $state');
     });
-    
+
     // Listen to errors
     _audioPlayer.onLog.listen((String message) {
       print('AudioPlayer log: $message');
@@ -194,12 +215,9 @@ class AudioService {
         print('Warning: Could not stop previous audio: $e');
       }
 
-      // Try to play the audio with extended timeout using the working URL
+      // Play the audio without waiting for completion
       print('Starting audio playback...');
-      await Future.any([
-        _audioPlayer.play(UrlSource(workingUrl)),
-        Future.delayed(const Duration(seconds: 15), () => throw TimeoutException('Audio play timeout after 15 seconds'))
-      ]);
+      _audioPlayer.play(UrlSource(workingUrl));
 
       print('Audio playback command sent successfully');
 

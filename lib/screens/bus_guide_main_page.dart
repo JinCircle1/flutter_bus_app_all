@@ -8,6 +8,7 @@ import '../services/text_room_service.dart';
 import 'device_id_screen.dart';
 import 'location_tracking_page.dart';
 import 'company_tour_config_screen.dart';
+import 'unified_map_screen.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:janus_client/janus_client.dart';
@@ -1033,7 +1034,38 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Bus Guide App")),
+      appBar: AppBar(
+        title: const Text("Bus Guide App"),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.map),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const UnifiedMapScreen(),
+                ),
+              );
+            },
+            tooltip: '統合地図',
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => DeviceIdScreen(
+                    onIdChanged: rejoinTextRoomIfChanged,
+                    onLanguageChanged: _onLanguageChanged,
+                  ),
+                ),
+              );
+            },
+            tooltip: '設定',
+          ),
+        ],
+      ),
       body: Column(
         children: [
           Expanded(flex: 1, child: _buildMap()),

@@ -45,5 +45,11 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>This app needs access to your location to show nearby landmarks and provide audio guides based on your position.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>This app needs access to your location to show nearby landmarks and provide audio guides based on your position.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This app needs microphone access for WebRTC audio communication with the tour guide.</string>
 </dict>
 </plist>

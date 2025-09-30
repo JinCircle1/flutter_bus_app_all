@@ -68,14 +68,13 @@ class ServerConfigService {
     return '$protocol://$host$portPart';
   }
 
-  /// Get the audio server base URL (specifically for audio files on port 3001)
+  /// Get the audio server base URL (specifically for audio files on port 3000)
   Future<String> getAudioServerBaseUrl() async {
     final host = await getHost();
     final protocol = await getProtocol();
 
-    // Audio files are served on port 3001
-    // Based on working original code: force HTTP for audio server even if HTTPS is used for API
-    return '${protocol == 'https' ? 'http' : protocol}://$host:3001';
+    // Audio files are served on port 3000
+    return '${protocol == 'https' ? 'http' : protocol}://$host:3000';
   }
 
   /// Set server host
