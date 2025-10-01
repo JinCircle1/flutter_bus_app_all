@@ -18,6 +18,8 @@ class StartupScreen extends StatefulWidget {
 }
 
 class _StartupScreenState extends State<StartupScreen> {
+  bool _isNavigating = false;
+
   @override
   void initState() {
     super.initState();
@@ -41,14 +43,29 @@ class _StartupScreenState extends State<StartupScreen> {
       );
     } else {
       // 無効またはツアー設定がない場合はQRスキャナー画面へ
-      final result = await Navigator.pushReplacement<Map<String, String>?, void>(
+      setState(() {
+        _isNavigating = true;
+      });
+
+      final result = await Navigator.push<Map<String, String>?>(
         context,
         MaterialPageRoute(builder: (context) => const QRScannerScreen()),
       );
 
+      setState(() {
+        _isNavigating = false;
+      });
+
       // QRスキャン後、結果がある場合はデータを保存して案内地図画面へ遷移
       if (result != null && mounted) {
         await _processQRData(result);
+      } else if (mounted) {
+        // QRスキャンがキャンセルされた場合、もう一度QRスキャナーを表示
+        // (バックボタンが押された場合など)
+        await Future.delayed(const Duration(milliseconds: 100));
+        if (mounted) {
+          _checkAndNavigate();
+        }
       }
     }
   }
@@ -188,6 +205,14 @@ class _StartupScreenState extends State<StartupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // ナビゲーション中は透明な画面を表示（背景が見えないように）
+    if (_isNavigating) {
+      return const Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SizedBox.shrink(),
+      );
+    }
+
     return Scaffold(
       backgroundColor: Colors.blue.shade50,
       body: Center(
