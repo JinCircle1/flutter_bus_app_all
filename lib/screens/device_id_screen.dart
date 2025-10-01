@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../services/room_config_service.dart';
 import '../services/postgrest_service.dart';
 import '../services/tour_validity_service.dart';
 import 'qr_scanner_screen.dart';
@@ -9,9 +8,8 @@ import 'dart:io' show Platform, exit;
 
 class DeviceIdScreen extends StatefulWidget {
   final Future<void> Function()? onIdChanged;
-  final Future<void> Function()? onLanguageChanged;
 
-  const DeviceIdScreen({super.key, this.onIdChanged, this.onLanguageChanged});
+  const DeviceIdScreen({super.key, this.onIdChanged});
 
   @override
   State<DeviceIdScreen> createState() => _DeviceIdScreenState();
@@ -20,8 +18,6 @@ class DeviceIdScreen extends StatefulWidget {
 class _DeviceIdScreenState extends State<DeviceIdScreen> {
   final TextEditingController _controller = TextEditingController();
   String? _savedId;
-  int _selectedLanguageId = 1;
-  Map<int, String> _languages = {};
 
   @override
   void initState() {
@@ -30,12 +26,9 @@ class _DeviceIdScreenState extends State<DeviceIdScreen> {
   }
 
   Future<void> _loadSettings() async {
-    final config = await RoomConfigService.getConfig();
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _languages = config.languages;
       _savedId = prefs.getString('device_id');
-      _selectedLanguageId = prefs.getInt('selected_language_id') ?? config.defaultLanguageId;
       if (_savedId != null) {
         _controller.text = _savedId!;
       }
@@ -67,25 +60,6 @@ class _DeviceIdScreenState extends State<DeviceIdScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('ID「$id」を保存しました')));
-    }
-  }
-
-  Future<void> _saveLanguage(int languageId) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('selected_language_id', languageId);
-    setState(() {
-      _selectedLanguageId = languageId;
-    });
-
-    // 言語変更コールバックを呼び出し
-    if (widget.onLanguageChanged != null) {
-      await widget.onLanguageChanged!();
-    }
-
-    if (mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('言語設定を保存しました')));
     }
   }
 
@@ -398,87 +372,6 @@ class _DeviceIdScreenState extends State<DeviceIdScreen> {
                               '現在のID: $_savedId',
                               style: const TextStyle(
                                 color: Colors.green,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      '言語設定',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      '音声ガイドの言語を選択してください',
-                      style: TextStyle(fontSize: 14, color: Colors.grey),
-                    ),
-                    const SizedBox(height: 16),
-                    if (_languages.isEmpty)
-                      const Center(
-                        child: CircularProgressIndicator(),
-                      )
-                    else
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: DropdownButton<int>(
-                          value: _languages.containsKey(_selectedLanguageId)
-                              ? _selectedLanguageId
-                              : _languages.keys.first,
-                          isExpanded: true,
-                          underline: Container(),
-                          items: _languages.entries.map((entry) {
-                            return DropdownMenuItem<int>(
-                              value: entry.key,
-                              child: Text(
-                                '${entry.value} (Language ID: ${entry.key})',
-                                style: const TextStyle(fontSize: 16),
-                              ),
-                            );
-                          }).toList(),
-                          onChanged: (int? newValue) {
-                            if (newValue != null && newValue != _selectedLanguageId) {
-                              _saveLanguage(newValue);
-                            }
-                          },
-                        ),
-                      ),
-                    if (_languages.containsKey(_selectedLanguageId)) ...[
-                      const SizedBox(height: 16),
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: Colors.blue),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.language, color: Colors.blue, size: 16),
-                            const SizedBox(width: 8),
-                            Text(
-                              '現在の言語: ${_languages[_selectedLanguageId]}',
-                              style: const TextStyle(
-                                color: Colors.blue,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
