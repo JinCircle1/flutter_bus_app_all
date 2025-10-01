@@ -1142,7 +1142,6 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
                       MaterialPageRoute(
                         builder: (context) => DeviceIdScreen(
                           onIdChanged: () async {},
-                          onLanguageChanged: () async {},
                         ),
                       ),
                     );

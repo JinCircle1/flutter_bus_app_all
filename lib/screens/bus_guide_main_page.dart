@@ -1161,7 +1161,6 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
                 MaterialPageRoute(
                   builder: (context) => DeviceIdScreen(
                     onIdChanged: rejoinTextRoomIfChanged,
-                    onLanguageChanged: _onLanguageChanged,
                   ),
                 ),
               );
@@ -1301,7 +1300,6 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
                           builder:
                               (_) => DeviceIdScreen(
                                 onIdChanged: rejoinTextRoomIfChanged,
-                                onLanguageChanged: _onLanguageChanged,
                               ),
                         ),
                       );
