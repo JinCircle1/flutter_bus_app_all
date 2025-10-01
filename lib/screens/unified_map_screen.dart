@@ -57,6 +57,8 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
   bool _isJoined = false;
   int _selectedLanguageId = 1;
   String? currentDeviceId;
+  Timer? _reconnectTimer;
+  bool _isReconnecting = false;
 
   // Display settings
   bool _showStatusPanel = false; // デフォルトは非表示
@@ -94,6 +96,8 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
     _proximityCheckTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
       _checkLandmarkProximity();
     });
+    // 再接続タイマーを開始（30秒ごとに接続状態をチェック）
+    _startReconnectTimer();
     _addStatus('✅ [INIT] 初期化完了');
   }
 
@@ -235,6 +239,34 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
     setState(() {
       _selectedLanguageId = languageId;
     });
+  }
+
+  void _startReconnectTimer() {
+    // 既にタイマーが動いている場合はキャンセル
+    _reconnectTimer?.cancel();
+
+    print("🔄 [RECONNECT] 再接続タイマーを開始します（30秒ごと）");
+    _reconnectTimer = Timer.periodic(const Duration(seconds: 30), (timer) async {
+      if (!_isConnected && !_isReconnecting && mounted) {
+        print("🔄 [RECONNECT] 切断を検知しました。再接続を試みます...");
+        _isReconnecting = true;
+        try {
+          await _connectWebRTC();
+        } catch (e) {
+          print("❌ [RECONNECT] 再接続失敗: $e");
+        } finally {
+          _isReconnecting = false;
+        }
+      } else if (_isConnected) {
+        print("✅ [RECONNECT] 接続中です。再接続は不要です。");
+      }
+    });
+  }
+
+  void _stopReconnectTimer() {
+    print("⏹️ [RECONNECT] 再接続タイマーを停止します");
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
   }
 
   void _addStatus(String message) {
@@ -751,6 +783,7 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
   void dispose() {
     WidgetsBinding.instance.removeObserver(this); // オブザーバーを解除
     _proximityCheckTimer?.cancel();
+    _stopReconnectTimer();
     _disconnectWebRTC();
     _locationService.stopAutoLocationTracking();
     textRoomService.dispose();
