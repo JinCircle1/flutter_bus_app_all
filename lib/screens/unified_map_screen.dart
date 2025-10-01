@@ -763,16 +763,18 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
               const SizedBox(width: 8),
               const Text('・', style: TextStyle(fontWeight: FontWeight.normal)),
               const SizedBox(width: 8),
-              Flexible(
+              Expanded(
                 child: Text(
                   _tourName,
-                  style: const TextStyle(fontSize: 16),
-                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 14),
+                  maxLines: 2,
+                  overflow: TextOverflow.visible,
                 ),
               ),
             ],
           ],
         ),
+        toolbarHeight: _tourName.isNotEmpty ? 80 : 56,
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           // Location Guide 設定ボタン
