@@ -13,10 +13,15 @@ class TourValidityService {
     }
 
     try {
-      final validFrom = tourData['valid_from'];
-      final validTo = tourData['valid_to'];
+      // valid_from/valid_to または start_time/end_time を使用
+      final validFrom = tourData['valid_from'] ?? tourData['start_time'];
+      final validTo = tourData['valid_to'] ?? tourData['end_time'];
 
-      // valid_from と valid_to が存在しない場合は有効とみなす
+      developer.log('🔍 [TourValidity] Checking validity with:');
+      developer.log('   - validFrom (or start_time): $validFrom');
+      developer.log('   - validTo (or end_time): $validTo');
+
+      // valid_from/start_time と valid_to/end_time が存在しない場合は有効とみなす
       if (validFrom == null && validTo == null) {
         developer.log('✅ [TourValidity] No validity period set, tour is valid');
         return TourValidityResult(
@@ -27,10 +32,14 @@ class TourValidityService {
       }
 
       final now = DateTime.now();
+      developer.log('   - Current time: $now');
 
       // valid_from チェック（開始日時前）
       if (validFrom != null) {
-        final validFromDate = DateTime.parse(validFrom);
+        // UTCとしてパースしてJST（UTC+9）に変換
+        final validFromDate = DateTime.parse(validFrom).toUtc().add(const Duration(hours: 9));
+        developer.log('   - Parsed validFromDate (JST): $validFromDate');
+
         if (now.isBefore(validFromDate)) {
           developer.log('❌ [TourValidity] Tour not started yet. Start: $validFromDate, Now: $now');
           return TourValidityResult(
@@ -38,21 +47,24 @@ class TourValidityService {
             errorType: ValidityErrorType.notStarted,
             message: 'このツアーはまだ開始されていません\n開始日時: ${_formatDateTime(validFromDate)}',
             validFrom: validFromDate,
-            validTo: validTo != null ? DateTime.parse(validTo) : null,
+            validTo: validTo != null ? DateTime.parse(validTo).toUtc().add(const Duration(hours: 9)) : null,
           );
         }
       }
 
       // valid_to チェック（終了日時後）
       if (validTo != null) {
-        final validToDate = DateTime.parse(validTo);
+        // UTCとしてパースしてJST（UTC+9）に変換
+        final validToDate = DateTime.parse(validTo).toUtc().add(const Duration(hours: 9));
+        developer.log('   - Parsed validToDate (JST): $validToDate');
+
         if (now.isAfter(validToDate)) {
           developer.log('❌ [TourValidity] Tour expired. End: $validToDate, Now: $now');
           return TourValidityResult(
             isValid: false,
             errorType: ValidityErrorType.expired,
             message: 'このツアーの有効期限が切れています\n終了日時: ${_formatDateTime(validToDate)}',
-            validFrom: validFrom != null ? DateTime.parse(validFrom) : null,
+            validFrom: validFrom != null ? DateTime.parse(validFrom).toUtc().add(const Duration(hours: 9)) : null,
             validTo: validToDate,
           );
         }
@@ -64,8 +76,8 @@ class TourValidityService {
         isValid: true,
         errorType: null,
         message: null,
-        validFrom: validFrom != null ? DateTime.parse(validFrom) : null,
-        validTo: validTo != null ? DateTime.parse(validTo) : null,
+        validFrom: validFrom != null ? DateTime.parse(validFrom).toUtc().add(const Duration(hours: 9)) : null,
+        validTo: validTo != null ? DateTime.parse(validTo).toUtc().add(const Duration(hours: 9)) : null,
       );
     } catch (e) {
       developer.log('❌ [TourValidity] Error checking validity: $e');
@@ -89,10 +101,11 @@ class TourValidityService {
     if (tourData == null) return null;
 
     try {
-      final validTo = tourData['valid_to'];
+      final validTo = tourData['valid_to'] ?? tourData['end_time'];
       if (validTo == null) return null;
 
-      final validToDate = DateTime.parse(validTo);
+      // UTCとしてパースしてJST（UTC+9）に変換
+      final validToDate = DateTime.parse(validTo).toUtc().add(const Duration(hours: 9));
       final now = DateTime.now();
 
       if (now.isAfter(validToDate)) return null;
@@ -110,18 +123,18 @@ class TourValidityService {
     if (tourData == null) return null;
 
     try {
-      final validFrom = tourData['valid_from'];
-      final validTo = tourData['valid_to'];
+      final validFrom = tourData['valid_from'] ?? tourData['start_time'];
+      final validTo = tourData['valid_to'] ?? tourData['end_time'];
 
       if (validFrom == null && validTo == null) {
         return '期限なし';
       }
 
       final fromStr = validFrom != null
-          ? _formatDateTime(DateTime.parse(validFrom))
+          ? _formatDateTime(DateTime.parse(validFrom).toUtc().add(const Duration(hours: 9)))
           : '開始日なし';
       final toStr = validTo != null
-          ? _formatDateTime(DateTime.parse(validTo))
+          ? _formatDateTime(DateTime.parse(validTo).toUtc().add(const Duration(hours: 9)))
           : '終了日なし';
 
       return '$fromStr ～ $toStr';
