@@ -233,10 +233,12 @@ class _DeviceIdScreenState extends State<DeviceIdScreen> {
     String formatDateTime(String? dateTimeStr) {
       if (dateTimeStr == null) return '未設定';
       try {
-        final dt = DateTime.parse(dateTimeStr);
-        return '${dt.year}年${dt.month}月${dt.day}日 '
-               '${dt.hour.toString().padLeft(2, '0')}:'
-               '${dt.minute.toString().padLeft(2, '0')}';
+        // UTCとしてパースしてからJST（UTC+9）に変換
+        final dt = DateTime.parse(dateTimeStr).toUtc();
+        final jst = dt.add(const Duration(hours: 9));
+        return '${jst.year}年${jst.month}月${jst.day}日 '
+               '${jst.hour.toString().padLeft(2, '0')}:'
+               '${jst.minute.toString().padLeft(2, '0')}';
       } catch (e) {
         return dateTimeStr;
       }
