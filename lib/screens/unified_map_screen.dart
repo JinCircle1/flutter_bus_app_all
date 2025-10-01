@@ -202,19 +202,25 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
 
   Future<void> _initializeBusGuide() async {
     try {
+      print("🚀 [UnifiedMap] Bus Guide初期化開始");
       // TextRoom初期化
       await textRoomService.initializeClient();
       String myId = (await getDeviceId()) ?? "ID0";
       currentDeviceId = myId;
+      print("📱 [UnifiedMap] デバイスID: $myId");
       await textRoomService.joinTextRoom(myId);
 
       // 言語設定読み込み
       await _loadSelectedLanguage();
 
-      // 自動接続開始
-      await Future.delayed(const Duration(seconds: 2));
+      // 自動接続開始（待機時間を1秒に短縮）
+      print("⏳ [UnifiedMap] 1秒後に自動接続を開始します...");
+      await Future.delayed(const Duration(seconds: 1));
       if (mounted && !_isConnected) {
+        print("🔗 [UnifiedMap] 自動接続を実行します");
         await _connectWebRTC();
+      } else {
+        print("ℹ️ [UnifiedMap] 既に接続済みです (_isConnected: $_isConnected)");
       }
     } catch (e) {
       // ignore: avoid_print
