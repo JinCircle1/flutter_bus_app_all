@@ -885,6 +885,14 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
                         bottom: 130, // コントロールパネルの上に配置
                         child: _buildDebugStatusPanel(),
                       ),
+                    // 観光地点情報と再生ボタン（画面上部に配置）
+                    if (_currentLandmark != null)
+                      Positioned(
+                        left: 16,
+                        right: 16,
+                        top: 16,
+                        child: _buildLandmarkInfoPanel(),
+                      ),
                     // ズームコントロールボタン（観光地点情報とガイド再生ボタンの上に配置）
                     Positioned(
                       right: 16,
@@ -1048,6 +1056,60 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
     );
   }
 
+  Widget _buildLandmarkInfoPanel() {
+    // 観光地点情報と再生ボタン（画面上部に表示）
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // 観光地点情報表示
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12.0),
+          decoration: BoxDecoration(
+            color: Colors.green[100],
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Text(
+            _currentLandmark!['name'],
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
+        const SizedBox(height: 8),
+        // 音声再生ボタン
+        ElevatedButton.icon(
+          onPressed: () {
+            print("🔵🔵🔵 [UnifiedMap] ボタンがタップされました！");
+            if (_isPlaying) {
+              _stopAudio();
+            } else {
+              _playAudio();
+            }
+          },
+          icon: Icon(_isPlaying ? Icons.stop : Icons.play_arrow),
+          label: Text(_getPlayButtonText()),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: _isPlaying ? Colors.red : Colors.green,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+            shadowColor: Colors.black.withValues(alpha: 0.3),
+            elevation: 4,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildMainControlPanel() {
     // メインコントロールパネル（接続・切断ボタンなど）
     return Container(
@@ -1067,51 +1129,6 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-          // 観光地点情報表示
-          if (_currentLandmark != null)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12.0),
-              margin: const EdgeInsets.only(bottom: 12.0),
-              decoration: BoxDecoration(
-                color: Colors.green[100],
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Column(
-                children: [
-                  Text(
-                    _currentLandmark!['name'],
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          // 音声再生ボタン（観光地点が近い場合のみ表示）
-          if (_currentLandmark != null)
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(bottom: 12.0),
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  print("🔵🔵🔵 [UnifiedMap] ボタンがタップされました！");
-                  if (_isPlaying) {
-                    _stopAudio();
-                  } else {
-                    _playAudio();
-                  }
-                },
-                icon: Icon(_isPlaying ? Icons.stop : Icons.play_arrow),
-                label: Text(_getPlayButtonText()),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _isPlaying ? Colors.red : Colors.green,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-              ),
-            ),
           // 位置情報表示
           if (latitude != null && longitude != null)
             Container(
