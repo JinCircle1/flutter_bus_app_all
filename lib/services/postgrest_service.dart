@@ -26,6 +26,8 @@ class PostgrestService {
 
     Uri uri = Uri.parse('$_baseUrl$endpoint');
     _logger.info('GET request to: $uri');
+    print('🔍 [PostgrestService._get] Full URL: $uri');
+    print('🔍 [PostgrestService._get] Endpoint: $endpoint');
 
     final headers = <String, String>{
       'Accept': 'application/json',
@@ -36,8 +38,12 @@ class PostgrestService {
       headers['Authorization'] = 'Basic $token';
     }
 
+    print('🔍 [PostgrestService._get] Headers: $headers');
+
     final response = await http.get(uri, headers: headers);
     _logger.info('Response status: ${response.statusCode}');
+    print('🔍 [PostgrestService._get] Response status: ${response.statusCode}');
+    print('🔍 [PostgrestService._get] Response body length: ${response.body.length}');
 
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
@@ -116,6 +122,7 @@ class PostgrestService {
   }
 
   /// companyId と companyTourId から tour_id と driver_language_id を取得
+  /// valid_from, valid_to, name, start_time, end_time も取得
   static Future<Map<String, dynamic>?> getTourData(int companyId, int companyTourId) async {
     const maxRetries = 3;
     const baseDelay = Duration(seconds: 2);
@@ -124,21 +131,42 @@ class PostgrestService {
       try {
         _logger.info('Getting tour data for companyId: $companyId, companyTourId: $companyTourId (attempt $attempt/$maxRetries)');
 
-        // PostgRESTのクエリ形式（external_tour_idを使用）
-        final response = await _get(
-          '/tours?company_id=eq.$companyId&external_tour_id=eq.$companyTourId&select=id,driver_language_id&limit=1',
-        ).timeout(
+        // PostgRESTのクエリ形式（external_tour_idを使用、必要なフィールドをすべて取得）
+        final queryUrl = '/tours?company_id=eq.$companyId&external_tour_id=eq.$companyTourId&select=id,company_id,external_tour_id,driver_language_id,valid_from,valid_to,name,start_time,end_time&limit=1';
+        print('🔍 [PostgrestService] Query URL: $queryUrl');
+
+        final response = await _get(queryUrl).timeout(
           const Duration(seconds: 10),
           onTimeout: () {
             throw Exception('Request timeout after 10 seconds');
           },
         );
 
+        print('🔍 [PostgrestService] Response: $response');
+        print('🔍 [PostgrestService] Response is List: ${response is List}');
+        print('🔍 [PostgrestService] Response length: ${response is List ? response.length : 'N/A'}');
+
         if (response is List && response.isNotEmpty) {
-          _logger.info('Tour data retrieved: ${response[0]}');
-          return response[0];
+          // サーバー側でフィルタリングが機能していない場合、クライアント側でフィルタリング
+          final filteredRecords = response.where((record) {
+            return record['company_id'] == companyId &&
+                   record['external_tour_id'] == companyTourId;
+          }).toList();
+
+          print('🔍 [PostgrestService] Filtered records count: ${filteredRecords.length}');
+
+          if (filteredRecords.isNotEmpty) {
+            _logger.info('Tour data retrieved: ${filteredRecords[0]}');
+            print('🔍 [PostgrestService] Selected record: ${filteredRecords[0]}');
+            return filteredRecords[0];
+          } else {
+            _logger.warning('No tour data found after filtering');
+            print('⚠️ [PostgrestService] No matching tour found for company_id=$companyId, external_tour_id=$companyTourId');
+            return null;
+          }
         } else {
           _logger.warning('No tour data found');
+          print('⚠️ [PostgrestService] Empty response or not a list');
           return null;
         }
       } catch (e) {

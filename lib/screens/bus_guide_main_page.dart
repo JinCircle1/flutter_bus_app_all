@@ -21,6 +21,7 @@ import 'dart:math' as math;
 import '../config/app_config.dart';
 import '../services/room_config_service.dart';
 import '../services/postgrest_service.dart';
+import '../services/tour_validity_service.dart';
 
 class MainPage extends StatefulWidget {
   const MainPage({super.key});
@@ -53,6 +54,9 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
 
   Future<void> _safeInitialize() async {
     try {
+      // ツアーの有効期間チェック
+      await _checkTourValidity();
+
       flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
       const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
       const iosInit = DarwinInitializationSettings();
@@ -1025,6 +1029,106 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
         );
       });
     }
+  }
+
+  /// ツアーの有効期間をチェック
+  Future<void> _checkTourValidity() async {
+    try {
+      final companyId = await AppConfig.getCompanyId();
+      final companyTourId = await AppConfig.getCompanyTourId();
+
+      print("🔍 [VALIDITY] ツアー有効期間チェック開始: Company ID=$companyId, Tour ID=$companyTourId");
+
+      final tourData = await PostgrestService.getTourData(companyId, companyTourId);
+      final validityResult = TourValidityService.checkValidity(tourData);
+
+      if (!validityResult.isValid && mounted) {
+        // 有効期間外の場合、エラー画面を表示
+        print("❌ [VALIDITY] ツアーが無効: ${validityResult.message}");
+
+        // エラーダイアログを表示（アプリを使用不可にする）
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _showValidityErrorDialog(validityResult);
+          }
+        });
+      } else {
+        print("✅ [VALIDITY] ツアーは有効です");
+
+        // 有効期間の残り日数を確認して警告表示（オプション）
+        final remainingDays = TourValidityService.getRemainingDays(tourData);
+        if (remainingDays != null && remainingDays <= 7 && remainingDays > 0) {
+          print("⚠️ [VALIDITY] ツアー有効期限まで残り${remainingDays}日です");
+        }
+      }
+    } catch (e) {
+      print("❌ [VALIDITY] 有効期間チェックエラー: $e");
+    }
+  }
+
+  /// 有効期間エラーダイアログを表示
+  void _showValidityErrorDialog(TourValidityResult result) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(
+              result.errorType == ValidityErrorType.expired
+                  ? Icons.error
+                  : Icons.warning,
+              color: Colors.red,
+            ),
+            const SizedBox(width: 8),
+            const Text('ツアー利用不可'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              result.message ?? 'このツアーは現在利用できません',
+              style: const TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 16),
+            if (result.validFrom != null || result.validTo != null) ...[
+              const Divider(),
+              const Text(
+                '有効期間:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              Text(TourValidityService.getValidityPeriodString(
+                {'valid_from': result.validFrom?.toIso8601String(), 'valid_to': result.validTo?.toIso8601String()}
+              ) ?? '不明'),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              // ツアー設定画面へ遷移
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const CompanyTourConfigScreen(),
+                ),
+              );
+            },
+            child: const Text('ツアー設定'),
+          ),
+          TextButton(
+            onPressed: () {
+              // アプリを終了
+              Navigator.pop(context);
+            },
+            child: const Text('閉じる'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

@@ -28,7 +28,7 @@ class UnifiedMapScreen extends StatefulWidget {
   State<UnifiedMapScreen> createState() => _UnifiedMapScreenState();
 }
 
-class _UnifiedMapScreenState extends State<UnifiedMapScreen> {
+class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBindingObserver {
   final fmap.MapController _mapController = fmap.MapController();
   final TextRoomService textRoomService = TextRoomService();
   final LandmarkService _landmarkService = LandmarkService();
@@ -64,6 +64,9 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> {
   // Debug status messages
   final List<String> _statusMessages = [];
 
+  // Tour information
+  String _tourName = ''; // ツアー名
+
   // カリフォルニア側の基準点（City Run の最初あたり）
   final double sourceLat = 37.330248;
   final double sourceLon = -122.02724276;
@@ -75,8 +78,10 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this); // アプリのライフサイクルを監視
     _addStatus('🚀 [INIT] アプリ初期化開始');
     _loadStatusPanelSetting();
+    _loadTourName();
     _initializeLocation();
     _initializeLandmarks();
     // 地図が描画された後に初期位置を設定
@@ -90,6 +95,34 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> {
       _checkLandmarkProximity();
     });
     _addStatus('✅ [INIT] 初期化完了');
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // アプリが再びアクティブになった時（他の画面から戻ってきた時）にツアー名を再読み込み
+    if (state == AppLifecycleState.resumed) {
+      print('🔄 [UnifiedMap] App resumed, reloading tour name');
+      _loadTourName();
+    }
+  }
+
+  @override
+  void didUpdateWidget(UnifiedMapScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 画面が更新された時にツアー名を再読み込み
+    _loadTourName();
+  }
+
+  Future<void> _loadTourName() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _tourName = prefs.getString('tour_name') ?? '';
+      });
+    } catch (e) {
+      print('❌ [INIT] ツアー名の読み込みエラー: $e');
+    }
   }
 
   Future<void> _loadStatusPanelSetting() async {
@@ -710,6 +743,7 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this); // オブザーバーを解除
     _proximityCheckTimer?.cancel();
     _disconnectWebRTC();
     _locationService.stopAutoLocationTracking();
@@ -722,7 +756,23 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('案内地図'),
+        title: Row(
+          children: [
+            const Text('案内地図'),
+            if (_tourName.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              const Text('・', style: TextStyle(fontWeight: FontWeight.normal)),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  _tourName,
+                  style: const TextStyle(fontSize: 16),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ],
+        ),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           // Location Guide 設定ボタン
