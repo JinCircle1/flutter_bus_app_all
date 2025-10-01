@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/room_config_service.dart';
 import '../services/postgrest_service.dart';
 import '../services/tour_validity_service.dart';
 import 'qr_scanner_screen.dart';
+import 'dart:io' show Platform, exit;
 
 class DeviceIdScreen extends StatefulWidget {
   final Future<void> Function()? onIdChanged;
@@ -118,9 +120,10 @@ class _DeviceIdScreenState extends State<DeviceIdScreen> {
           final validityResult = TourValidityService.checkValidity(tourData);
 
           if (!validityResult.isValid && mounted) {
-            // 有効期間外の場合、エラーメッセージを表示
+            // 有効期間外の場合、エラーメッセージを表示してアプリを終了
             showDialog(
               context: context,
+              barrierDismissible: false,
               builder: (context) => AlertDialog(
                 title: Row(
                   children: [
@@ -153,12 +156,26 @@ class _DeviceIdScreenState extends State<DeviceIdScreen> {
                         {'valid_from': validityResult.validFrom?.toIso8601String(), 'valid_to': validityResult.validTo?.toIso8601String()}
                       ) ?? '不明'),
                     ],
+                    const SizedBox(height: 16),
+                    const Divider(),
+                    const Text(
+                      'アプリを終了します',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+                    ),
                   ],
                 ),
                 actions: [
                   TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('閉じる'),
+                    onPressed: () {
+                      Navigator.pop(context);
+                      // アプリを終了
+                      if (Platform.isAndroid) {
+                        SystemNavigator.pop();
+                      } else if (Platform.isIOS) {
+                        exit(0);
+                      }
+                    },
+                    child: const Text('終了'),
                   ),
                 ],
               ),
