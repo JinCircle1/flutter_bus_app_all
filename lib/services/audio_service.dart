@@ -233,6 +233,28 @@ class AudioService {
     }
   }
 
+  /// 指定されたlandmarkIdに対応する音声ファイルが存在するかチェック
+  Future<bool> hasLandmarkAudio(int landmarkId) async {
+    try {
+      // Get audio URL with timeout
+      final audioUrl = await Future.any([
+        getAudioUrl(landmarkId),
+        Future.delayed(const Duration(seconds: 3), () => null)
+      ]);
+
+      if (audioUrl == null) {
+        return false;
+      }
+
+      // Test if audio file exists at any of the possible paths
+      final workingUrl = await _testMultipleAudioPaths(audioUrl);
+      return workingUrl != null;
+    } catch (e) {
+      print('Error checking landmark audio: $e');
+      return false;
+    }
+  }
+
   Future<void> playDefaultAudio() async {
     try {
       print('Playing default audio');

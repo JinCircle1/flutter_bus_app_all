@@ -1058,7 +1058,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
         // 有効期間の残り日数を確認して警告表示（オプション）
         final remainingDays = TourValidityService.getRemainingDays(tourData);
         if (remainingDays != null && remainingDays <= 7 && remainingDays > 0) {
-          print("⚠️ [VALIDITY] ツアー有効期限まで残り${remainingDays}日です");
+          print("⚠️ [VALIDITY] ツアー有効期限まで残り$remainingDays日です");
         }
       }
     } catch (e) {

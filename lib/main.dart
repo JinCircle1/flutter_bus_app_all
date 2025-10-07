@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/bus_guide_screen.dart';
 import 'screens/proper_location_guide_screen.dart';
 import 'screens/startup_screen.dart';
@@ -56,6 +57,42 @@ void main() async {
 
   // Set custom HttpOverrides to handle SSL issues with WebSocket connections
   HttpOverrides.global = MyHttpOverrides();
+
+  // dart-defineで渡された値を読み込み
+  const deviceId = String.fromEnvironment('DEVICE_ID');
+  const companyId = String.fromEnvironment('COMPANY_ID');
+  const tourId = String.fromEnvironment('TOUR_ID');
+
+  // 値が指定されている場合はSharedPreferencesに保存
+  // 重要：起動前に確実に保存を完了させる
+  if (deviceId.isNotEmpty || companyId.isNotEmpty || tourId.isNotEmpty) {
+    print("📝 [MAIN] dart-defineで渡された値を保存中...");
+    final prefs = await SharedPreferences.getInstance();
+
+    if (deviceId.isNotEmpty) {
+      await prefs.setString('device_id', deviceId);
+      print("✅ [MAIN] デバイスIDを設定: $deviceId");
+    }
+
+    if (companyId.isNotEmpty) {
+      final companyIdInt = int.tryParse(companyId);
+      if (companyIdInt != null) {
+        await prefs.setInt('company_id_override', companyIdInt);
+        print("✅ [MAIN] Company IDを設定: $companyIdInt");
+      }
+    }
+
+    if (tourId.isNotEmpty) {
+      final tourIdInt = int.tryParse(tourId);
+      if (tourIdInt != null) {
+        await prefs.setInt('company_tour_id_override', tourIdInt);
+        print("✅ [MAIN] Tour IDを設定: $tourIdInt");
+      }
+    }
+
+    // 保存が完了したことを確認
+    print("✅ [MAIN] すべての設定値を保存完了");
+  }
 
   try {
     await Firebase.initializeApp(

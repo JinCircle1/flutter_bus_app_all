@@ -143,6 +143,18 @@ class TourValidityService {
       return null;
     }
   }
+
+  /// 有効期間を取得（DateTimeオブジェクトから直接）
+  static String getValidityPeriodStringFromDates(DateTime? validFrom, DateTime? validTo) {
+    if (validFrom == null && validTo == null) {
+      return '期限なし';
+    }
+
+    final fromStr = validFrom != null ? _formatDateTime(validFrom) : '開始日なし';
+    final toStr = validTo != null ? _formatDateTime(validTo) : '終了日なし';
+
+    return '$fromStr ～ $toStr';
+  }
 }
 
 /// ツアー有効性チェックの結果

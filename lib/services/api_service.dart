@@ -169,6 +169,18 @@ class ApiService {
     return data.cast<Map<String, dynamic>>();
   }
 
+  /// Get all UI translations from the database
+  Future<List<Map<String, dynamic>>> getUITranslations() async {
+    try {
+      final data = await get('ui_translations');
+      return data.cast<Map<String, dynamic>>();
+    } catch (e) {
+      developer.log('Error fetching UI translations: $e', name: 'ApiService');
+      // Return empty list if table doesn't exist yet
+      return [];
+    }
+  }
+
 
   /// Generate audio data based on landmarks and languages
   Future<List<Map<String, dynamic>>> _generateAudioFromLandmarks(
@@ -196,7 +208,9 @@ class ApiService {
       }
 
       // Generate audio URL based on landmark and language
-      final languageCode = (language['code'] as String).substring(0, 2); // ja_JP -> ja
+      // Extract language code from locale format (ja_JP -> ja, en_US -> en, vi_VN -> vi)
+      final fullCode = language['code'] as String;
+      final languageCode = fullCode.split('_')[0]; // ja_JP -> ja
       final audioUrl = 'audio/landmark_${landmarkId}_$languageCode.mp3';
 
       final generatedAudio = {

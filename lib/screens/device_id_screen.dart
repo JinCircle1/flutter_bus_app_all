@@ -16,8 +16,12 @@ class DeviceIdScreen extends StatefulWidget {
 }
 
 class _DeviceIdScreenState extends State<DeviceIdScreen> {
-  final TextEditingController _controller = TextEditingController();
-  String? _savedId;
+  final TextEditingController _deviceIdController = TextEditingController();
+  final TextEditingController _companyIdController = TextEditingController();
+  final TextEditingController _tourIdController = TextEditingController();
+  String? _savedDeviceId;
+  int? _savedCompanyId;
+  int? _savedTourId;
 
   @override
   void initState() {
@@ -28,39 +32,149 @@ class _DeviceIdScreenState extends State<DeviceIdScreen> {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _savedId = prefs.getString('device_id');
-      if (_savedId != null) {
-        _controller.text = _savedId!;
+      _savedDeviceId = prefs.getString('device_id');
+      _savedCompanyId = prefs.getInt('company_id_override');
+      _savedTourId = prefs.getInt('company_tour_id_override');
+
+      if (_savedDeviceId != null) {
+        _deviceIdController.text = _savedDeviceId!;
+      }
+      if (_savedCompanyId != null) {
+        _companyIdController.text = _savedCompanyId.toString();
+      }
+      if (_savedTourId != null) {
+        _tourIdController.text = _savedTourId.toString();
       }
     });
   }
 
-  Future<void> _saveDeviceId(String id) async {
-    if (id.isEmpty) {
+  Future<void> _saveAllSettings() async {
+    final deviceId = _deviceIdController.text.trim();
+    final companyIdStr = _companyIdController.text.trim();
+    final tourIdStr = _tourIdController.text.trim();
+
+    if (deviceId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('IDを入力してください')),
+        const SnackBar(content: Text('デバイスIDを入力してください')),
       );
       return;
     }
-    
-    final prefs = await SharedPreferences.getInstance();
-    final oldId = prefs.getString('device_id');
-    await prefs.setString('device_id', id);
 
-    if (oldId != id && widget.onIdChanged != null) {
+    if (companyIdStr.isEmpty || tourIdStr.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Company IDとTour IDを入力してください')),
+      );
+      return;
+    }
+
+    final companyId = int.tryParse(companyIdStr);
+    final tourId = int.tryParse(tourIdStr);
+
+    if (companyId == null || tourId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Company IDとTour IDは数値で入力してください')),
+      );
+      return;
+    }
+
+    // ツアーデータ取得と有効期間チェック
+    final tourData = await PostgrestService.getTourData(companyId, tourId);
+
+    if (tourData == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ツアーが見つかりませんでした'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    final validityResult = TourValidityService.checkValidity(tourData);
+
+    if (!validityResult.isValid && mounted) {
+      // 有効期間外の場合、エラーダイアログを表示
+      _showInvalidTourDialog(validityResult);
+      return;
+    }
+
+    // 有効なツアーの場合、保存する
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('device_id', deviceId);
+    await prefs.setInt('company_id_override', companyId);
+    await prefs.setInt('company_tour_id_override', tourId);
+
+    // ツアー名を保存
+    if (tourData['name'] != null) {
+      await prefs.setString('tour_name', tourData['name']);
+    }
+
+    if (widget.onIdChanged != null) {
       await widget.onIdChanged!();
     }
 
     setState(() {
-      _savedId = id;
-      _controller.text = id;
+      _savedDeviceId = deviceId;
+      _savedCompanyId = companyId;
+      _savedTourId = tourId;
     });
 
     if (mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('ID「$id」を保存しました')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('設定を保存しました')),
+      );
     }
+  }
+
+  void _showInvalidTourDialog(TourValidityResult validityResult) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(
+              validityResult.errorType == ValidityErrorType.expired
+                  ? Icons.error
+                  : Icons.warning,
+              color: Colors.red,
+            ),
+            const SizedBox(width: 8),
+            const Text('無効なツアー'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              validityResult.message ?? 'このツアーは現在利用できません',
+              style: const TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 16),
+            if (validityResult.validFrom != null || validityResult.validTo != null) ...[
+              const Divider(),
+              const Text(
+                '有効期間:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              Text(TourValidityService.getValidityPeriodStringFromDates(
+                validityResult.validFrom,
+                validityResult.validTo,
+              )),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('閉じる'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _scanQRCode() async {
@@ -126,9 +240,10 @@ class _DeviceIdScreenState extends State<DeviceIdScreen> {
                         '有効期間:',
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
-                      Text(TourValidityService.getValidityPeriodString(
-                        {'valid_from': validityResult.validFrom?.toIso8601String(), 'valid_to': validityResult.validTo?.toIso8601String()}
-                      ) ?? '不明'),
+                      Text(TourValidityService.getValidityPeriodStringFromDates(
+                        validityResult.validFrom,
+                        validityResult.validTo,
+                      )),
                     ],
                     const SizedBox(height: 16),
                     const Divider(),
@@ -159,6 +274,7 @@ class _DeviceIdScreenState extends State<DeviceIdScreen> {
 
           // 有効なツアーの場合、保存する
           final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('device_id', pCode);
           await prefs.setInt('company_id_override', int.parse(companyId));
           await prefs.setInt('company_tour_id_override', int.parse(tourId));
 
@@ -166,6 +282,16 @@ class _DeviceIdScreenState extends State<DeviceIdScreen> {
           if (tourData != null && tourData['name'] != null) {
             await prefs.setString('tour_name', tourData['name']);
           }
+
+          // フィールドに反映
+          setState(() {
+            _deviceIdController.text = pCode;
+            _companyIdController.text = companyId;
+            _tourIdController.text = tourId;
+            _savedDeviceId = pCode;
+            _savedCompanyId = int.parse(companyId);
+            _savedTourId = int.parse(tourId);
+          });
 
           // 成功ダイアログを表示（ツアー名と開始・終了日時を含む）
           if (mounted) {
@@ -176,10 +302,16 @@ class _DeviceIdScreenState extends State<DeviceIdScreen> {
               tourId: tourId,
             );
           }
-        }
+        } else {
+          // company_idとtour_idがない場合は、デバイスIDのみ設定
+          setState(() {
+            _deviceIdController.text = pCode;
+            _savedDeviceId = pCode;
+          });
 
-        // p_codeをデバイスIDに設定
-        await _saveDeviceId(pCode);
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('device_id', pCode);
+        }
       }
     }
   }
@@ -302,7 +434,7 @@ class _DeviceIdScreenState extends State<DeviceIdScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('ユーザー設定')),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
@@ -313,7 +445,7 @@ class _DeviceIdScreenState extends State<DeviceIdScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'デバイスID設定',
+                      'ツアー設定',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -321,28 +453,45 @@ class _DeviceIdScreenState extends State<DeviceIdScreen> {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      'この端末に割り当てるIDを入力、またはQRコードで読み取り',
+                      '各項目を入力するか、QRコードで読み取ってください',
                       style: TextStyle(fontSize: 14, color: Colors.grey),
                     ),
                     const SizedBox(height: 16),
                     TextField(
-                      controller: _controller,
+                      controller: _deviceIdController,
                       decoration: const InputDecoration(
                         border: OutlineInputBorder(),
-                        labelText: 'IDを入力',
+                        labelText: 'デバイスID',
                         hintText: '例: ID001',
                       ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _companyIdController,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Company ID',
+                        hintText: '例: 2',
+                      ),
+                      keyboardType: TextInputType.number,
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _tourIdController,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Tour ID',
+                        hintText: '例: 1',
+                      ),
+                      keyboardType: TextInputType.number,
                     ),
                     const SizedBox(height: 16),
                     Row(
                       children: [
                         Expanded(
                           child: ElevatedButton(
-                            onPressed: () {
-                              final id = _controller.text.trim();
-                              _saveDeviceId(id);
-                            },
-                            child: const Text('IDを保存'),
+                            onPressed: _saveAllSettings,
+                            child: const Text('保存'),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -355,26 +504,48 @@ class _DeviceIdScreenState extends State<DeviceIdScreen> {
                         ),
                       ],
                     ),
-                    if (_savedId != null) ...[
+                    if (_savedDeviceId != null || _savedCompanyId != null || _savedTourId != null) ...[
                       const SizedBox(height: 16),
                       Container(
-                        padding: const EdgeInsets.all(8),
+                        padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           color: Colors.green.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(4),
                           border: Border.all(color: Colors.green),
                         ),
-                        child: Row(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(Icons.check_circle, color: Colors.green, size: 16),
-                            const SizedBox(width: 8),
-                            Text(
-                              '現在のID: $_savedId',
-                              style: const TextStyle(
-                                color: Colors.green,
-                                fontWeight: FontWeight.bold,
-                              ),
+                            const Row(
+                              children: [
+                                Icon(Icons.check_circle, color: Colors.green, size: 20),
+                                SizedBox(width: 8),
+                                Text(
+                                  '現在の設定',
+                                  style: TextStyle(
+                                    color: Colors.green,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ],
                             ),
+                            const SizedBox(height: 8),
+                            if (_savedDeviceId != null)
+                              Text(
+                                'デバイスID: $_savedDeviceId',
+                                style: const TextStyle(color: Colors.green),
+                              ),
+                            if (_savedCompanyId != null)
+                              Text(
+                                'Company ID: $_savedCompanyId',
+                                style: const TextStyle(color: Colors.green),
+                              ),
+                            if (_savedTourId != null)
+                              Text(
+                                'Tour ID: $_savedTourId',
+                                style: const TextStyle(color: Colors.green),
+                              ),
                           ],
                         ),
                       ),

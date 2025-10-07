@@ -49,8 +49,10 @@ class PostgrestService {
       return jsonDecode(response.body);
     } else if (response.statusCode == 401) {
       _logger.warning('Authentication required or failed');
+      print('❌ [PostgrestService._get] Authentication failed');
       throw Exception('Authentication failed: ${response.statusCode}');
     } else {
+      print('❌ [PostgrestService._get] Error response body: ${response.body}');
       throw Exception('GET request failed: ${response.statusCode} - ${response.body}');
     }
   }
@@ -132,7 +134,7 @@ class PostgrestService {
         _logger.info('Getting tour data for companyId: $companyId, companyTourId: $companyTourId (attempt $attempt/$maxRetries)');
 
         // PostgRESTのクエリ形式（external_tour_idを使用、必要なフィールドをすべて取得）
-        final queryUrl = '/tours?company_id=eq.$companyId&external_tour_id=eq.$companyTourId&select=id,company_id,external_tour_id,driver_language_id,valid_from,valid_to,name,start_time,end_time&limit=1';
+        final queryUrl = '/tours?company_id=eq.$companyId&external_tour_id=eq.$companyTourId&select=id,company_id,external_tour_id,driver_language_id,start_time,end_time,name&limit=1';
         print('🔍 [PostgrestService] Query URL: $queryUrl');
 
         final response = await _get(queryUrl).timeout(
@@ -142,6 +144,7 @@ class PostgrestService {
           },
         );
 
+        print('✅ [PostgrestService] getTourData: Successfully received response');
         print('🔍 [PostgrestService] Response: $response');
         print('🔍 [PostgrestService] Response is List: ${response is List}');
         print('🔍 [PostgrestService] Response length: ${response is List ? response.length : 'N/A'}');

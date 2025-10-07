@@ -93,6 +93,7 @@ class LocationService {
     _locationStreamController = StreamController<Position>.broadcast();
 
     // Start position stream with configurable distance filter
+    print('🔍 [LocationService] Starting Geolocator stream with distanceFilter: ${settings.distanceInterval}m');
     _positionSubscription =
         Geolocator.getPositionStream(
           locationSettings: LocationSettings(
@@ -101,13 +102,15 @@ class LocationService {
           ),
         ).listen(
           (Position position) {
+            print('📍 [LocationService] Geolocator stream received: lat=${position.latitude}, lon=${position.longitude}');
             _lastKnownPosition = position;
             _locationStreamController?.add(position);
           },
           onError: (error) {
-            print('Location stream error: $error');
+            print('❌ [LocationService] Location stream error: $error');
           },
         );
+    print('✅ [LocationService] Geolocator stream listener attached');
 
     // Also start a timer-based update as fallback
     _startTimerBasedUpdates(settings.timeInterval);
@@ -141,25 +144,38 @@ class LocationService {
 
   void _startTimerBasedUpdates(int intervalSeconds) {
     _locationTimer?.cancel();
+    print('⏰ [LocationService] Starting timer-based updates (every ${intervalSeconds}s)');
     _locationTimer = Timer.periodic(Duration(seconds: intervalSeconds), (
       timer,
     ) async {
       try {
+        print('⏰ [LocationService] Timer tick - getting current position...');
         final position = await getCurrentPosition();
         if (position != null) {
+          print('⏰ [LocationService] Position: lat=${position.latitude}, lon=${position.longitude}');
           // Only emit if there's a significant distance change or no previous position
-          if (_lastKnownPosition == null ||
-              calculateDistance(
-                    _lastKnownPosition!.latitude,
-                    _lastKnownPosition!.longitude,
-                    position.latitude,
-                    position.longitude,
-                  ) >
-                  5.0) {
-            // 5 meter threshold to avoid unnecessary updates
+          if (_lastKnownPosition == null) {
+            print('⏰ [LocationService] No previous position - emitting update');
             _lastKnownPosition = position;
             _locationStreamController?.add(position);
+          } else {
+            final distance = calculateDistance(
+              _lastKnownPosition!.latitude,
+              _lastKnownPosition!.longitude,
+              position.latitude,
+              position.longitude,
+            );
+            print('⏰ [LocationService] Distance from last position: ${distance.toStringAsFixed(2)}m (threshold: 5m)');
+            if (distance > 5.0) {
+              print('⏰ [LocationService] Distance > 5m - emitting update');
+              _lastKnownPosition = position;
+              _locationStreamController?.add(position);
+            } else {
+              print('⏰ [LocationService] Distance <= 5m - skipping update');
+            }
           }
+        } else {
+          print('⚠️ [LocationService] Timer tick - position is null');
         }
       } catch (e) {
         print('Timer-based location update error: $e');

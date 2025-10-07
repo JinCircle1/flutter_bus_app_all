@@ -28,44 +28,56 @@ class _StartupScreenState extends State<StartupScreen> {
 
   Future<void> _checkAndNavigate() async {
     // 少し待機してスプラッシュ画面のような効果を与える
-    await Future.delayed(const Duration(milliseconds: 500));
+    // また、main.dartでのSharedPreferences保存が確実に完了するまで待機
+    await Future.delayed(const Duration(milliseconds: 1000));
 
     // ツアーの有効期間をチェック
-    final isValid = await StartupTourCheckService.checkTourValidityOnStartup();
+    final validityCheckResult = await StartupTourCheckService.checkTourValidityOnStartupDetailed();
 
     if (!mounted) return;
 
-    if (isValid) {
+    if (validityCheckResult['isValid'] == true) {
       // 有効なツアーがある場合は案内地図画面へ
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const UnifiedMapScreen()),
       );
     } else {
-      // 無効またはツアー設定がない場合はQRスキャナー画面へ
-      setState(() {
-        _isNavigating = true;
-      });
+      // 無効またはツアー設定がない場合
+      final validityResult = validityCheckResult['validityResult'] as TourValidityResult?;
 
-      final result = await Navigator.push<Map<String, String>?>(
-        context,
-        MaterialPageRoute(builder: (context) => const QRScannerScreen()),
-      );
+      if (validityResult != null && !validityResult.isValid) {
+        // 期間外の場合、選択ダイアログを表示
+        await _showOutOfPeriodDialog(validityResult);
+      } else {
+        // ツアー設定がない場合は直接QRスキャナー画面へ
+        await _navigateToQRScanner();
+      }
+    }
+  }
 
-      setState(() {
-        _isNavigating = false;
-      });
+  Future<void> _navigateToQRScanner() async {
+    setState(() {
+      _isNavigating = true;
+    });
 
-      // QRスキャン後、結果がある場合はデータを保存して案内地図画面へ遷移
-      if (result != null && mounted) {
-        await _processQRData(result);
-      } else if (mounted) {
-        // QRスキャンがキャンセルされた場合、もう一度QRスキャナーを表示
-        // (バックボタンが押された場合など)
-        await Future.delayed(const Duration(milliseconds: 100));
-        if (mounted) {
-          _checkAndNavigate();
-        }
+    final result = await Navigator.push<Map<String, String>?>(
+      context,
+      MaterialPageRoute(builder: (context) => const QRScannerScreen()),
+    );
+
+    setState(() {
+      _isNavigating = false;
+    });
+
+    // QRスキャン後、結果がある場合はデータを保存して案内地図画面へ遷移
+    if (result != null && mounted) {
+      await _processQRData(result);
+    } else if (mounted) {
+      // QRスキャンがキャンセルされた場合、もう一度QRスキャナーを表示
+      await Future.delayed(const Duration(milliseconds: 100));
+      if (mounted) {
+        _checkAndNavigate();
       }
     }
   }
@@ -138,6 +150,106 @@ class _StartupScreenState extends State<StartupScreen> {
     );
   }
 
+  Future<void> _showOutOfPeriodDialog(TourValidityResult validityResult) async {
+    final choice = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(
+              validityResult.errorType == ValidityErrorType.expired
+                  ? Icons.error
+                  : Icons.warning,
+              color: Colors.orange,
+            ),
+            const SizedBox(width: 8),
+            const Text('期間外のツアー'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              validityResult.message ?? 'このツアーは現在利用できません',
+              style: const TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 16),
+            if (validityResult.validFrom != null || validityResult.validTo != null) ...[
+              const Divider(),
+              const Text(
+                '有効期間:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              Text(TourValidityService.getValidityPeriodStringFromDates(
+                validityResult.validFrom,
+                validityResult.validTo,
+              )),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context, 'manual');
+            },
+            child: const Text('手入力'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context, 'qr');
+            },
+            child: const Text('QRコード'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context, 'exit');
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('終了'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted) return;
+
+    switch (choice) {
+      case 'manual':
+        // 手入力画面へ遷移
+        await _navigateToManualInput();
+        break;
+      case 'qr':
+        // QRスキャナー画面へ遷移
+        await _navigateToQRScanner();
+        break;
+      case 'exit':
+      default:
+        // アプリを終了
+        if (Platform.isAndroid) {
+          SystemNavigator.pop();
+        } else if (Platform.isIOS) {
+          exit(0);
+        }
+        break;
+    }
+  }
+
+  Future<void> _navigateToManualInput() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const DeviceIdScreen(),
+      ),
+    );
+
+    // 手入力後、再度有効期間チェック
+    if (mounted) {
+      _checkAndNavigate();
+    }
+  }
+
   void _showInvalidTourDialog(TourValidityResult validityResult) {
     showDialog(
       context: context,
@@ -170,18 +282,16 @@ class _StartupScreenState extends State<StartupScreen> {
                 '有効期間:',
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
-              Text(TourValidityService.getValidityPeriodString(
-                {
-                  'valid_from': validityResult.validFrom?.toIso8601String(),
-                  'valid_to': validityResult.validTo?.toIso8601String()
-                },
-              ) ?? '不明'),
+              Text(TourValidityService.getValidityPeriodStringFromDates(
+                validityResult.validFrom,
+                validityResult.validTo,
+              )),
             ],
             const SizedBox(height: 16),
             const Divider(),
             const Text(
-              'アプリを終了します',
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+              'QRコードを読み取ってください',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange),
             ),
           ],
         ),
@@ -189,14 +299,8 @@ class _StartupScreenState extends State<StartupScreen> {
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              // アプリを終了
-              if (Platform.isAndroid) {
-                SystemNavigator.pop();
-              } else if (Platform.isIOS) {
-                exit(0);
-              }
             },
-            child: const Text('終了'),
+            child: const Text('OK'),
           ),
         ],
       ),

@@ -9,7 +9,6 @@ import 'package:geolocator/geolocator.dart';
 import 'dart:async';
 import 'bus_guide_main_page.dart';
 import 'device_id_screen.dart';
-import 'company_tour_config_screen.dart';
 import 'location_guide_settings_screen.dart';
 import '../config/app_config.dart';
 import '../services/room_config_service.dart';
@@ -20,6 +19,7 @@ import '../services/audio_service.dart';
 import '../services/location_service.dart';
 import '../services/translation_service.dart';
 import '../services/api_service.dart';
+import '../services/kana_to_romaji_service.dart';
 
 class UnifiedMapScreen extends StatefulWidget {
   const UnifiedMapScreen({super.key});
@@ -48,6 +48,7 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
   List<Map<String, dynamic>> _languages = [];
   bool _isPlaying = false;
   Timer? _proximityCheckTimer;
+  StreamSubscription<Position>? _locationSubscription;
 
   // Bus Guide (WebRTC) 関連
   JanusClient? _janusClient;
@@ -62,6 +63,7 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
 
   // Display settings
   bool _showStatusPanel = false; // デフォルトは非表示
+  bool _showUserSettingsButton = false; // デフォルトは非表示
 
   // Debug status messages
   final List<String> _statusMessages = [];
@@ -82,7 +84,10 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
     super.initState();
     WidgetsBinding.instance.addObserver(this); // アプリのライフサイクルを監視
     _addStatus('🚀 [INIT] アプリ初期化開始');
+    _initializeTranslations();
     _loadStatusPanelSetting();
+    _loadUserSettingsButtonSetting();
+    _loadLanguageSetting();
     _loadTourName();
     _initializeLocation();
     _initializeLandmarks();
@@ -140,10 +145,46 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
     }
   }
 
+  Future<void> _loadUserSettingsButtonSetting() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _showUserSettingsButton = prefs.getBool('show_user_settings_button') ?? false; // デフォルトは非表示
+      });
+    } catch (e) {
+      print('Failed to load user settings button setting: $e');
+    }
+  }
+
+  Future<void> _loadLanguageSetting() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _selectedLanguageId = prefs.getInt('selected_language_id') ?? 1; // デフォルトは日本語(ID: 1)
+      });
+      print('✅ [INIT] 言語設定を読み込みました: $_selectedLanguageId');
+    } catch (e) {
+      print('Failed to load language setting: $e');
+    }
+  }
+
+  Future<void> _initializeTranslations() async {
+    try {
+      await _translationService.initialize();
+    } catch (e) {
+      print('Failed to initialize translations: $e');
+    }
+  }
+
   Future<void> _initializeLandmarks() async {
     try {
       print("🗺️ [UnifiedMap] 観光地点データ取得開始");
       final landmarks = await _landmarkService.refreshLandmarks();
+
+      // デバッグ: landmarkデータの構造を確認
+      if (landmarks.isNotEmpty) {
+        print("🔍 [UnifiedMap] Landmark sample data: ${landmarks.first}");
+      }
 
       // 言語データも取得
       try {
@@ -217,14 +258,23 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
       // 言語設定読み込み
       await _loadSelectedLanguage();
 
-      // 自動接続開始（待機時間を1秒に短縮）
-      print("⏳ [UnifiedMap] 1秒後に自動接続を開始します...");
-      await Future.delayed(const Duration(seconds: 1));
-      if (mounted && !_isConnected) {
-        print("🔗 [UnifiedMap] 自動接続を実行します");
-        await _connectWebRTC();
+      // 接続設定を読み込み
+      final prefs = await SharedPreferences.getInstance();
+      final shouldConnect = prefs.getBool('webrtc_should_connect') ?? true;
+      print("🔧 [UnifiedMap] 接続設定: shouldConnect = $shouldConnect");
+
+      // 自動接続開始（設定がtrueの場合のみ）
+      if (shouldConnect) {
+        print("⏳ [UnifiedMap] 1秒後に自動接続を開始します...");
+        await Future.delayed(const Duration(seconds: 1));
+        if (mounted && !_isConnected) {
+          print("🔗 [UnifiedMap] 自動接続を実行します");
+          await _connectWebRTC();
+        } else {
+          print("ℹ️ [UnifiedMap] 既に接続済みです (_isConnected: $_isConnected)");
+        }
       } else {
-        print("ℹ️ [UnifiedMap] 既に接続済みです (_isConnected: $_isConnected)");
+        print("ℹ️ [UnifiedMap] 接続設定がOFFです。自動接続をスキップします。");
       }
     } catch (e) {
       // ignore: avoid_print
@@ -247,6 +297,15 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
 
     print("🔄 [RECONNECT] 再接続タイマーを開始します（30秒ごと）");
     _reconnectTimer = Timer.periodic(const Duration(seconds: 30), (timer) async {
+      // 接続設定を確認
+      final prefs = await SharedPreferences.getInstance();
+      final shouldConnect = prefs.getBool('webrtc_should_connect') ?? true;
+
+      if (!shouldConnect) {
+        print("ℹ️ [RECONNECT] 接続設定がOFFです。再接続をスキップします。");
+        return;
+      }
+
       if (!_isConnected && !_isReconnecting && mounted) {
         print("🔄 [RECONNECT] 切断を検知しました。再接続を試みます...");
         _isReconnecting = true;
@@ -321,7 +380,7 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
       });
 
       await _getCurrentLocation();
-      _setupLocationTracking();
+      await _setupLocationTracking();
 
       setState(() {
         _isInitializing = false;
@@ -429,9 +488,13 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
     };
   }
 
-  void _setupLocationTracking() async {
+  Future<void> _setupLocationTracking() async {
     try {
       print("🗺️ [UnifiedMap] 位置情報追跡開始");
+
+      // 既存のsubscriptionをキャンセル
+      await _locationSubscription?.cancel();
+      _locationSubscription = null;
 
       // LocationServiceを使用して自動追跡を開始
       await _locationService.startAutoLocationTracking();
@@ -443,7 +506,7 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
 
       if (locationStream != null) {
         print("🔍 [UnifiedMap] stream listenerを設定中...");
-        locationStream.listen((position) {
+        _locationSubscription = locationStream.listen((position) {
           _addStatus('📍 [LOCATION] 位置変更: ${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}');
           print("📍 [UnifiedMap] 位置変更検出: lat=${position.latitude}, lon=${position.longitude}");
 
@@ -486,13 +549,16 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
     // 観光地点マーカー
     for (final landmark in _landmarks) {
       final isNearby = _currentLandmark != null && _currentLandmark!['id'] == landmark['id'];
+
       markers.add(
         fmap.Marker(
+          width: 40,
+          height: 40,
           point: LatLng(landmark['latitude'], landmark['longitude']),
           child: GestureDetector(
             onTap: () => _showLandmarkInfo(landmark),
             child: Icon(
-              Icons.place,
+              Icons.flag,
               color: isNearby ? Colors.green : Colors.red,
               size: 40,
             ),
@@ -518,23 +584,102 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
     return markers;
   }
 
-  void _showLandmarkInfo(Map<String, dynamic> landmark) {
+  void _showLandmarkInfo(Map<String, dynamic> landmark) async {
+    // 選択された言語コードを取得
+    String languageCode = 'ja'; // デフォルト
+    if (_languages.isNotEmpty) {
+      final selectedLanguage = _languages.firstWhere(
+        (lang) => lang['id'] == _selectedLanguageId,
+        orElse: () => _languages.first,
+      );
+      languageCode = selectedLanguage['code'] as String? ?? 'ja';
+    }
+
+    // 現在位置からの距離と方向を計算
+    String distanceText = _translationService.getTranslation(languageCode, 'unknown');
+    String directionText = _translationService.getTranslation(languageCode, 'unknown');
+    String audioStatus = _translationService.getTranslation(languageCode, 'unknown');
+
+    if (latitude != null && longitude != null) {
+      final distance = _landmarkService.calculateDistance(
+        latitude!,
+        longitude!,
+        landmark['latitude'],
+        landmark['longitude'],
+      );
+      distanceText = '${distance.toStringAsFixed(0)}m';
+
+      final bearing = _landmarkService.calculateBearing(
+        latitude!,
+        longitude!,
+        landmark['latitude'],
+        landmark['longitude'],
+      );
+      directionText = _landmarkService.getDirectionFromBearing(bearing, languageCode);
+    }
+
+    // 音声ファイルの有無を確認
+    try {
+      final landmarkId = landmark['id'] as int;
+      final hasAudio = await _audioService.hasLandmarkAudio(landmarkId);
+      audioStatus = hasAudio
+          ? _translationService.getTranslation(languageCode, 'audio_available')
+          : _translationService.getTranslation(languageCode, 'audio_unavailable');
+    } catch (e) {
+      audioStatus = _translationService.getTranslation(languageCode, 'error');
+    }
+
+    if (!mounted) return;
+
+    // フリガナをローマ字に変換
+    final furigana = landmark['name_kana'] as String? ?? landmark['name'] as String;
+    final romajiName = KanaToRomajiService().convert(furigana);
+
+    // 翻訳されたラベルを取得
+    final distanceLabel = _translationService.getTranslation(languageCode, 'distance');
+    final directionLabel = _translationService.getTranslation(languageCode, 'direction');
+    final audioLabel = _translationService.getTranslation(languageCode, 'audio_guide');
+    final closeLabel = _translationService.getTranslation(languageCode, 'close');
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(landmark['name']),
+        title: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              landmark['name'],
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              romajiName,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+                fontStyle: FontStyle.italic,
+                fontWeight: FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('緯度: ${landmark['latitude']}'),
-            Text('経度: ${landmark['longitude']}'),
+            Text('$distanceLabel: $distanceText'),
+            Text('$directionLabel: $directionText'),
+            Text('$audioLabel: $audioStatus'),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('閉じる'),
+            child: Text(closeLabel),
           ),
         ],
       ),
@@ -782,6 +927,7 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this); // オブザーバーを解除
+    _locationSubscription?.cancel();
     _proximityCheckTimer?.cancel();
     _stopReconnectTimer();
     _disconnectWebRTC();
@@ -828,8 +974,9 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
               );
               // 設定変更後に再初期化
               await _initializeLandmarks();
-              // 位置情報追跡設定を再適用
+              // 位置情報追跡設定を再適用（新しいstreamを取得）
               await _locationService.updateTrackingSettings();
+              await _setupLocationTracking(); // Stream listenerを再設定
               // 音声言語設定を再読み込み
               final newLanguageId = await _audioService.getSelectedLanguageId();
               if (mounted && newLanguageId != _selectedLanguageId) {
@@ -840,6 +987,8 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
               }
               // ステータスパネル表示設定を再読み込み
               await _loadStatusPanelSetting();
+              // ユーザー設定ボタン表示設定を再読み込み
+              await _loadUserSettingsButtonSetting();
             },
             tooltip: 'Location Guide設定',
           ),
@@ -1115,13 +1264,31 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
               ),
             ],
           ),
-          child: Text(
-            _currentLandmark!['name'],
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
-            textAlign: TextAlign.center,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _currentLandmark!['name'],
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                KanaToRomajiService().convert(
+                  _currentLandmark!['name_kana'] as String? ??
+                  _currentLandmark!['name'] as String
+                ),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[700],
+                  fontStyle: FontStyle.italic,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 8),
@@ -1189,79 +1356,26 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
               ),
             ),
           const SizedBox(height: 12),
-          // Bus Guide & Location Guide ボタン
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => DeviceIdScreen(
-                          onIdChanged: () async {},
-                        ),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.person, size: 16),
-                  label: const Text('ユーザー設定', style: TextStyle(fontSize: 11)),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
+          // ユーザー設定ボタン（設定で表示が有効な場合のみ表示）
+          if (_showUserSettingsButton)
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => DeviceIdScreen(
+                      onIdChanged: () async {},
+                    ),
                   ),
-                ),
+                );
+              },
+              icon: const Icon(Icons.person, size: 16),
+              label: const Text('ユーザー設定', style: TextStyle(fontSize: 12)),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                minimumSize: const Size(double.infinity, 0),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const CompanyTourConfigScreen(),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.tour, size: 16),
-                  label: const Text('ツアー設定', style: TextStyle(fontSize: 11)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () async {
-                    if (_isConnected) {
-                      await _disconnectWebRTC();
-                    } else {
-                      await _connectWebRTC();
-                    }
-                  },
-                  icon: Icon(
-                    _isConnected ? Icons.link_off : Icons.link,
-                    size: 16,
-                  ),
-                  label: Text(
-                    _isConnected ? '切断' : '接続',
-                    style: const TextStyle(fontSize: 11),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _isConnected ? Colors.red : Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                  ),
-                ),
-              ),
-            ],
-          ),
+            ),
         ],
         ),
       ),
