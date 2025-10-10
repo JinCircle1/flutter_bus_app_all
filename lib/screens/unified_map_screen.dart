@@ -4,6 +4,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:location/location.dart' as loc;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:janus_client/janus_client.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart' as perm;
 import 'package:geolocator/geolocator.dart';
 import 'dart:async';
@@ -840,6 +841,44 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
         }
       }
 
+      // リモート音声ストリーム受信のハンドラーを設定
+      _audioPlugin!.peerConnection!.onTrack = (RTCTrackEvent event) {
+        print('[UnifiedMap] リモートトラック受信: ${event.track.kind}');
+        if (event.track.kind == 'audio') {
+          event.track.enabled = true;
+          print('[UnifiedMap] 音声トラック有効化: ${event.track.id}');
+          _addStatus('✅ 音声トラック受信: ${event.track.id}');
+
+          if (event.streams.isNotEmpty) {
+            print('[UnifiedMap] リモートストリーム受信: ${event.streams[0].id}');
+            _addStatus('✅ リモートストリーム受信: ${event.streams[0].id}');
+          }
+        }
+      };
+
+      _audioPlugin!.peerConnection!.onAddStream = (MediaStream stream) {
+        print('[UnifiedMap] リモートストリーム追加: ${stream.id}');
+        _addStatus('✅ リモートストリーム追加: ${stream.id}');
+
+        final audioTracks = stream.getAudioTracks();
+        print('[UnifiedMap] 音声トラック数: ${audioTracks.length}');
+
+        for (final track in audioTracks) {
+          track.enabled = true;
+          print('[UnifiedMap] 音声トラック有効化: ${track.id}, enabled=${track.enabled}');
+          _addStatus('✅ 音声トラック有効化: ${track.id}');
+        }
+      };
+
+      // ハンドラー設定完了をログ出力
+      print('[UnifiedMap] ✅ リモートストリームハンドラー設定完了');
+      _addStatus('✅ リモートストリームハンドラー設定完了');
+
+      // AudioBridgeプラグインのメッセージリスナーを設定
+      _audioPlugin!.messages?.listen(_onMessage);
+      print('[UnifiedMap] ✅ AudioBridgeメッセージリスナー設定完了');
+      _addStatus('✅ AudioBridgeメッセージリスナー設定完了');
+
       setState(() {
         _isConnected = true;
       });
@@ -913,14 +952,177 @@ class _UnifiedMapScreenState extends State<UnifiedMapScreen> with WidgetsBinding
       }
 
       await _audioPlugin!.joinRoom(roomNumber, display: currentDeviceId ?? "User");
-      setState(() {
-        _isJoined = true;
-      });
+      // Note: _isJoined will be set to true in _onMessage when 'joined' response is received
       // ignore: avoid_print
-      print("✅ [UnifiedMap] ルーム参加成功: room=$roomNumber");
+      print("✅ [UnifiedMap] ルーム参加リクエスト送信: room=$roomNumber");
     } catch (e) {
       // ignore: avoid_print
       print("❌ [UnifiedMap] ルーム参加エラー: $e");
+    }
+  }
+
+  // AudioBridgeプラグインからのメッセージを処理
+  Future<void> _onMessage(EventMessage msg) async {
+    final eventData = msg.event;
+    final plugindata = eventData['plugindata'];
+    final jsep = eventData['jsep'];
+
+    _addStatus('受信メッセージ: ${msg.event}');
+
+    if (plugindata?['plugin'] == 'janus.plugin.audiobridge') {
+      final data = plugindata['data'];
+      _addStatus('AudioBridge応答: $data');
+
+      if (data?['audiobridge'] == 'joined') {
+        setState(() {
+          _isJoined = true;
+        });
+        _addStatus('✅ 参加成功');
+        print("✅ [UnifiedMap] AudioBridgeルーム参加成功");
+
+        // リスナーとして参加完了 - 音声受信のためconfigureリクエストを送信
+        _addStatus('リスナーとして参加完了 - configure送信中...');
+        print("🔧 [UnifiedMap] configureListener開始...");
+        await _configureListener();
+      } else if (data?['audiobridge'] == 'event') {
+        _addStatus('AudioBridgeイベント: $data');
+
+        // JSEP（Offer/Answer）がある場合は処理
+        if (jsep != null) {
+          await _handleJsep(jsep);
+        }
+      }
+    }
+  }
+
+  // リスナー設定（音声受信専用のconfigure要求を送信）
+  Future<void> _configureListener() async {
+    try {
+      _addStatus('リスナー設定を開始...');
+      print("🔧 [UnifiedMap] リスナー設定開始");
+
+      // 受信専用のOffer作成（ICE gatheting最適化）
+      final offer = await _audioPlugin!.peerConnection!.createOffer({
+        'offerToReceiveAudio': true,
+        'offerToReceiveVideo': false,
+        'iceRestart': false,
+        'voiceActivityDetection': false,
+      });
+
+      // Offer SDPを音声受信専用に修正
+      String modifiedSDP = offer.sdp!;
+      List<String> modifiedLines = modifiedSDP.split('\n');
+
+      // 音声の送受信設定を適切に設定（受信のみ）
+      for (int i = 0; i < modifiedLines.length; i++) {
+        if (modifiedLines[i].contains('a=sendrecv')) {
+          modifiedLines[i] = 'a=recvonly';
+        }
+      }
+
+      // 確実にrecvonlyを追加
+      if (!modifiedSDP.contains('a=recvonly')) {
+        final audioIndex = modifiedLines.indexWhere(
+          (line) => line.startsWith('m=audio'),
+        );
+        if (audioIndex != -1) {
+          modifiedLines.insert(audioIndex + 1, 'a=recvonly');
+        }
+      }
+
+      modifiedSDP = modifiedLines.join('\n');
+      final modifiedOffer = RTCSessionDescription(modifiedSDP, offer.type);
+
+      await _audioPlugin!.peerConnection!.setLocalDescription(modifiedOffer);
+      _addStatus('Local SDP設定完了');
+      print("✅ [UnifiedMap] Local SDP設定完了");
+
+      // ICE候補収集完了を待つ
+      _addStatus('🔄 ICE候補収集完了を待機中...');
+      await _waitForIceGatheringComplete();
+
+      // configureリクエストを送信（listener用設定）
+      final configureRequest = {
+        'request': 'configure',
+        'muted': true,    // 送信は無効
+        'deaf': false,    // 受信は有効
+        'display': 'Flutter Listener (recv-only)',
+      };
+
+      await _audioPlugin!.send(data: configureRequest, jsep: modifiedOffer);
+      _addStatus('✅ Configure リクエスト送信完了');
+      print("✅ [UnifiedMap] Configure リクエスト送信完了");
+
+    } catch (e) {
+      _addStatus('❌ Configure エラー: $e');
+      print("❌ [UnifiedMap] Configure エラー: $e");
+    }
+  }
+
+  // ICE候補収集完了を待つ
+  Future<void> _waitForIceGatheringComplete() async {
+    final pc = _audioPlugin?.peerConnection;
+    if (pc == null) return;
+
+    // 既にICE候補収集が完了している場合はすぐに返す
+    if (pc.iceGatheringState == RTCIceGatheringState.RTCIceGatheringStateComplete) {
+      _addStatus('✅ ICE候補収集完了済み');
+      return;
+    }
+
+    _addStatus('🔄 ICE候補収集中... (最大10秒待機)');
+
+    // ポーリングでICE収集状態を確認
+    const checkInterval = Duration(milliseconds: 200);
+    const maxWaitTime = Duration(seconds: 10);
+    final startTime = DateTime.now();
+
+    while (DateTime.now().difference(startTime) < maxWaitTime) {
+      final state = pc.iceGatheringState;
+      _addStatus('ICE収集状態: $state');
+
+      if (state == RTCIceGatheringState.RTCIceGatheringStateComplete) {
+        _addStatus('✅ ICE候補収集完了 - configure要求送信可能');
+        return;
+      }
+
+      // 短い間隔で状態をチェック
+      await Future.delayed(checkInterval);
+    }
+
+    _addStatus('⚠️ ICE候補収集がタイムアウト - 強制進行');
+  }
+
+  // JSEPを処理（Offer/Answer）
+  Future<void> _handleJsep(Map<String, dynamic> jsep) async {
+    try {
+      final jsepType = jsep['type'];
+      _addStatus('JSEP受信: $jsepType');
+      print("📨 [UnifiedMap] JSEP受信: $jsepType");
+
+      final remoteDescription = RTCSessionDescription(
+        jsep['sdp'],
+        jsepType,
+      );
+
+      await _audioPlugin!.peerConnection!.setRemoteDescription(
+        remoteDescription,
+      );
+      _addStatus('✅ Remote SDP設定完了');
+      print("✅ [UnifiedMap] Remote SDP設定完了");
+
+      // Offerを受信した場合はAnswerを返す
+      if (jsepType == 'offer') {
+        final answer = await _audioPlugin!.peerConnection!.createAnswer();
+        await _audioPlugin!.peerConnection!.setLocalDescription(answer);
+
+        await _audioPlugin!.send(data: {'request': 'ack'}, jsep: answer);
+        _addStatus('✅ Answer送信完了');
+        print("✅ [UnifiedMap] Answer送信完了");
+      }
+    } catch (e) {
+      _addStatus('❌ JSEP処理エラー: $e');
+      print("❌ [UnifiedMap] JSEP処理エラー: $e");
     }
   }
 
